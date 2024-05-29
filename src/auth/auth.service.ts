@@ -5,10 +5,12 @@ import {
 	UnauthorizedException
 } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
+import { User } from '@prisma/client'
 import { verify } from 'argon2'
 import { Response } from 'express'
 import { UserService } from 'src/user/user.service'
 import { AuthDto } from './dto/auth.dto'
+import { RefreshTokenDto } from './dto/refresh-token.dto'
 
 @Injectable()
 export class AuthService {
@@ -17,57 +19,115 @@ export class AuthService {
 
 	constructor(private jwt: JwtService, private userService: UserService) {}
 
+	// async login(dto: AuthDto) {
+	// 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	// 	const { password, ...user } = await this.validateUser(dto)
+	// 	const tokens = this.issueTokens(user.id)
+
+	// 	return {
+	// 		user,
+	// 		...tokens
+	// 	}
+	// }
+
 	async login(dto: AuthDto) {
-		// eslint-disable-next-line @typescript-eslint/no-unused-vars
-		const { password, ...user } = await this.validateUser(dto)
-		const tokens = this.issueTokens(user.id)
+		const user = await this.validateUser(dto)
+
+		const tokens = await this.issueTokenPair(user.id)
 
 		return {
-			user,
+			user: this.returnUserFields(user),
 			...tokens
 		}
 	}
+
+	// async register(dto: AuthDto) {
+	// 	const oldUser = await this.userService.getByEmail(dto.email)
+
+	// 	if (oldUser) throw new BadRequestException('User already exists')
+
+	// 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	// 	const { password, ...user } = await this.userService.create(dto)
+
+	// 	const tokens = this.issueTokens(user.id)
+
+	// 	return {
+	// 		user,
+	// 		...tokens
+	// 	}
+	// }
 
 	async register(dto: AuthDto) {
 		const oldUser = await this.userService.getByEmail(dto.email)
 
 		if (oldUser) throw new BadRequestException('User already exists')
-
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
-		const { password, ...user } = await this.userService.create(dto)
+		const { ...user } = await this.userService.create(dto)
 
-		const tokens = this.issueTokens(user.id)
+		const tokens = await this.issueTokenPair(user.id)
 
 		return {
-			user,
+			user: this.returnUserFields(user),
 			...tokens
 		}
 	}
 
-	async getNewTokens(refreshToken: string) {
+	// async getNewTokens(refreshToken: string) {
+	// 	const result = await this.jwt.verifyAsync(refreshToken)
+	// 	if (!result) throw new UnauthorizedException('Invalid refresh token')
+
+	// 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	// 	const { password, ...user } = await this.userService.getById(result.id)
+
+	// 	const tokens = this.issueTokens(user.id)
+
+	// 	return {
+	// 		user,
+	// 		...tokens
+	// 	}
+	// }
+
+	async getNewTokens({ refreshToken }: RefreshTokenDto) {
+		if (!refreshToken)
+			throw new UnauthorizedException('Please, sign in to account')
+
 		const result = await this.jwt.verifyAsync(refreshToken)
-		if (!result) throw new UnauthorizedException('Invalid refresh token')
+		if (!result) throw new UnauthorizedException('Invalid token or expired')
 
-		// eslint-disable-next-line @typescript-eslint/no-unused-vars
-		const { password, ...user } = await this.userService.getById(result.id)
+		//eslint-disable-next-line @typescript-eslint/no-unused-vars
+		const { ...user } = await this.userService.getById(result.id)
 
-		const tokens = this.issueTokens(user.id)
+		const tokens = await this.issueTokenPair(user.id)
 
 		return {
-			user,
+			user: this.returnUserFields(user),
 			...tokens
 		}
 	}
 
-	private issueTokens(userId: string) {
+	// private issueTokens(userId: string) {
+	// 	const data = { id: userId }
+
+	// 	const accessToken = this.jwt.sign(data, {
+	// 		expiresIn: '1h'
+	// 	})
+
+	// 	const refreshToken = this.jwt.sign(data, {
+	// 		expiresIn: '7d'
+	// 	})
+
+	// 	return { accessToken, refreshToken }
+	// }
+
+	async issueTokenPair(userId: string) {
 		const data = { id: userId }
 
-		const accessToken = this.jwt.sign(data, {
-			expiresIn: '1h'
+		const refreshToken = await this.jwt.signAsync(data, {
+			expiresIn: '15d'
 		})
 
-		const refreshToken = this.jwt.sign(data, {
-			expiresIn: '7d'
+		const accessToken = await this.jwt.signAsync(data, {
+			expiresIn: '91d'
 		})
 
 		return { accessToken, refreshToken }
@@ -97,6 +157,19 @@ export class AuthService {
 			// lax if production
 			sameSite: 'none'
 		})
+	}
+
+	returnUserFields(user: User) {
+		return {
+			id: user.id,
+			createdAt: user.createdAt,
+			updatedAt: user.updatedAt,
+			email: user.email,
+			name: user.name,
+			workInterval: user.workInterval,
+			breakInterval: user.breakInterval,
+			intervalsCount: user.intervalsCount
+		}
 	}
 
 	removeRefreshTokenFromResponse(res: Response) {
